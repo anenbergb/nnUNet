@@ -97,6 +97,11 @@ class nnUNetPredictor(object):
         trainer_class = recursive_find_python_class(join(nnunetv2.__path__[0], "training", "nnUNetTrainer"),
                                                     trainer_name, 'nnunetv2.training.nnUNetTrainer')
         if trainer_class is None:
+            import mbas
+            trainer_class = recursive_find_python_class(join(mbas.__path__[0], "training"),
+                                        trainer_name,
+                                        current_module="mbas.training")
+        if trainer_class is None:
             raise RuntimeError(f'Unable to locate trainer class {trainer_name} in nnunetv2.training.nnUNetTrainer. '
                                f'Please place it there (in any .py file)!')
         network = trainer_class.build_network_architecture(
