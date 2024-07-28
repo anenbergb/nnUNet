@@ -1,11 +1,17 @@
-from typing import Union, Tuple
+from typing import Union, Tuple, Dict, List
 
 from batchgenerators.dataloading.data_loader import DataLoader
 import numpy as np
 from batchgenerators.utilities.file_and_folder_operations import *
 from nnunetv2.training.dataloading.nnunet_dataset import nnUNetDataset
 from nnunetv2.utilities.label_handling.label_handling import LabelManager
+import copy
 
+def normalize_dictionary(d: dict):
+    norm = sum(d.values())
+    for k in d.keys():
+        d[k] = d[k] / norm
+    return d
 
 class nnUNetDataLoaderBase(DataLoader):
     def __init__(self,
@@ -18,7 +24,9 @@ class nnUNetDataLoaderBase(DataLoader):
                  sampling_probabilities: Union[List[int], Tuple[int, ...], np.ndarray] = None,
                  pad_sides: Union[List[int], Tuple[int, ...], np.ndarray] = None,
                  probabilistic_oversampling: bool = False,
-                 transforms=None):
+                 transforms=None,
+                 sample_class_probabilities: Dict[int, float] = None,
+                ):
         super().__init__(data, batch_size, 1, None, True, False, True, sampling_probabilities)
         self.indices = list(data.keys())
 
@@ -42,6 +50,9 @@ class nnUNetDataLoaderBase(DataLoader):
         self.get_do_oversample = self._oversample_last_XX_percent if not probabilistic_oversampling \
             else self._probabilistic_oversampling
         self.transforms = transforms
+        if sample_class_probabilities is not None:
+            sample_class_probabilities = normalize_dictionary(sample_class_probabilities)
+        self.sample_class_probabilities = sample_class_probabilities
 
     def _oversample_last_XX_percent(self, sample_idx: int) -> bool:
         """
@@ -79,7 +90,6 @@ class nnUNetDataLoaderBase(DataLoader):
         # define what the upper and lower bound can be to then sample form them with np.random.randint
         lbs = [- need_to_pad[i] // 2 for i in range(dim)]
         ubs = [data_shape[i] + need_to_pad[i] // 2 + need_to_pad[i] % 2 - self.patch_size[i] for i in range(dim)]
-
         # if not force_fg then we can just sample the bbox randomly from lb and ub. Else we need to make sure we get
         # at least one of the foreground classes in the patch
         if not force_fg and not self.has_ignore:
@@ -102,6 +112,14 @@ class nnUNetDataLoaderBase(DataLoader):
                 # class_locations keys can also be tuple
                 eligible_classes_or_regions = [i for i in class_locations.keys() if len(class_locations[i]) > 0]
 
+                sample_class_probabilities = self.sample_class_probabilities
+                if sample_class_probabilities is not None:
+                    remove_keys = [k for k in sample_class_probabilities.keys() if k not in eligible_classes_or_regions]
+                    if len(remove_keys) > 0:
+                        for k in remove_keys:
+                            sample_class_probabilities.pop(k)
+                        sample_class_probabilities = normalize_dictionary(sample_class_probabilities)
+
                 # if we have annotated_classes_key locations and other classes are present, remove the annotated_classes_key from the list
                 # strange formulation needed to circumvent
                 # ValueError: The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()
@@ -116,10 +134,13 @@ class nnUNetDataLoaderBase(DataLoader):
                     if verbose:
                         print('case does not contain any foreground classes')
                 else:
-                    # I hate myself. Future me aint gonna be happy to read this
-                    # 2022_11_25: had to read it today. Wasn't too bad
-                    selected_class = eligible_classes_or_regions[np.random.choice(len(eligible_classes_or_regions))] if \
-                        (overwrite_class is None or (overwrite_class not in eligible_classes_or_regions)) else overwrite_class
+                    if sample_class_probabilities is not None and len(sample_class_probabilities) > 0:
+                        selected_class = np.random.choice(list(sample_class_probabilities.keys()),
+                                        p=list(sample_class_probabilities.values()))
+                    elif overwrite_class is None or (overwrite_class not in eligible_classes_or_regions):
+                        selected_class = eligible_classes_or_regions[np.random.choice(len(eligible_classes_or_regions))]
+                    else:
+                        selected_class = overwrite_class
                 # print(f'I want to have foreground, selected class: {selected_class}')
             else:
                 raise RuntimeError('lol what!?')
