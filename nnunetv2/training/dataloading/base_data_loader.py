@@ -116,6 +116,7 @@ class nnUNetDataLoaderBase(DataLoader):
                 if sample_class_probabilities is not None:
                     remove_keys = [k for k in sample_class_probabilities.keys() if k not in eligible_classes_or_regions]
                     if len(remove_keys) > 0:
+                        sample_class_probabilities = copy.deepcopy(sample_class_probabilities)
                         for k in remove_keys:
                             sample_class_probabilities.pop(k)
                         sample_class_probabilities = normalize_dictionary(sample_class_probabilities)
