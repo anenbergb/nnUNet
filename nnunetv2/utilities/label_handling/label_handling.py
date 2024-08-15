@@ -292,7 +292,8 @@ def determine_num_input_channels(plans_manager: PlansManager,
     num_modalities = len(dataset_json['modality']) if 'modality' in dataset_json.keys() else len(dataset_json['channel_names'])
 
     # cascade has different number of input channels
-    if config_manager.previous_stage_name is not None:
+    is_cascaded_mask = config_manager.configuration.get("is_cascaded_mask", False)
+    if config_manager.previous_stage_name is not None and not is_cascaded_mask:
         num_label_inputs = len(label_manager.foreground_labels)
         num_input_channels = num_modalities + num_label_inputs
     else:

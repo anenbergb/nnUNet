@@ -379,6 +379,29 @@ class nnUNetPredictor(object):
 
                 prediction = self.predict_logits_from_preprocessed_data(data).cpu()
 
+                is_cascaded_mask = self.configuration_manager.configuration.get("is_cascaded_mask", False)
+                if is_cascaded_mask:
+  
+                    # prediction.shape (4,44,574,574)
+                    # mask shape (1,44,574,574)
+                    seg = preprocessed["seg"]
+                    seg[seg < 0] = 0
+                    mask = torch.from_numpy(seg).to(torch.bool)
+
+                    cascaded_mask_dilation = self.configuration_manager.configuration.get("cascaded_mask_dilation", 0)
+                    if cascaded_mask_dilation > 0:
+                        from mbas.utils.binary_dilation_transform import binary_dilation_transform
+                        mask[0] = binary_dilation_transform(
+                            mask[0], cascaded_mask_dilation
+                        )
+
+                    # background class-0 prediction is the first channel
+                    # set the un-masked region (background) to 1
+                    # leave the masked region (foreground) as is
+                    prediction[0] = torch.where(mask, prediction[0], 1.0)
+                    # zero out the background for the other channels
+                    prediction[1:] = prediction[1:] * mask
+
                 if ofile is not None:
                     # this needs to go into background processes
                     # export_prediction_from_logits(prediction, properties, self.configuration_manager, self.plans_manager,
