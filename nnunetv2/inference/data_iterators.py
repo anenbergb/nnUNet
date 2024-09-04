@@ -34,14 +34,17 @@ def preprocess_fromfiles_save_to_queue(list_of_lists: List[List[str]],
                                                                plans_manager,
                                                                configuration_manager,
                                                                dataset_json)
-            if list_of_segs_from_prev_stage_files is not None and list_of_segs_from_prev_stage_files[idx] is not None:
+            
+            is_cascaded_mask = configuration_manager.configuration.get("is_cascaded_mask", False)
+            if not is_cascaded_mask and list_of_segs_from_prev_stage_files is not None and list_of_segs_from_prev_stage_files[idx] is not None:
                 seg_onehot = convert_labelmap_to_one_hot(seg[0], label_manager.foreground_labels, data.dtype)
                 data = np.vstack((data, seg_onehot))
 
             data = torch.from_numpy(data).to(dtype=torch.float32, memory_format=torch.contiguous_format)
 
             item = {'data': data, 'data_properties': data_properties,
-                    'ofile': output_filenames_truncated[idx] if output_filenames_truncated is not None else None}
+                    'ofile': output_filenames_truncated[idx] if output_filenames_truncated is not None else None,
+                    'seg': seg}
             success = False
             while not success:
                 try:

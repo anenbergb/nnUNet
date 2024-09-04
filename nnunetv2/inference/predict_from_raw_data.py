@@ -97,6 +97,11 @@ class nnUNetPredictor(object):
         trainer_class = recursive_find_python_class(join(nnunetv2.__path__[0], "training", "nnUNetTrainer"),
                                                     trainer_name, 'nnunetv2.training.nnUNetTrainer')
         if trainer_class is None:
+            import mbas
+            trainer_class = recursive_find_python_class(join(mbas.__path__[0], "training"),
+                                        trainer_name,
+                                        current_module="mbas.training")
+        if trainer_class is None:
             raise RuntimeError(f'Unable to locate trainer class {trainer_name} in nnunetv2.training.nnUNetTrainer. '
                                f'Please place it there (in any .py file)!')
         network = trainer_class.build_network_architecture(
@@ -373,6 +378,29 @@ class nnUNetPredictor(object):
                     proceed = not check_workers_alive_and_busy(export_pool, worker_list, r, allowed_num_queued=2)
 
                 prediction = self.predict_logits_from_preprocessed_data(data).cpu()
+
+                is_cascaded_mask = self.configuration_manager.configuration.get("is_cascaded_mask", False)
+                if is_cascaded_mask:
+  
+                    # prediction.shape (4,44,574,574)
+                    # mask shape (1,44,574,574)
+                    seg = preprocessed["seg"]
+                    seg[seg < 0] = 0
+                    mask = torch.from_numpy(seg).to(torch.bool)
+
+                    cascaded_mask_dilation = self.configuration_manager.configuration.get("cascaded_mask_dilation", 0)
+                    if cascaded_mask_dilation > 0:
+                        from mbas.utils.binary_dilation_transform import binary_dilation_transform
+                        mask[0] = binary_dilation_transform(
+                            mask[0], cascaded_mask_dilation
+                        )
+
+                    # background class-0 prediction is the first channel
+                    # set the un-masked region (background) to 1
+                    # leave the masked region (foreground) as is
+                    prediction[0] = torch.where(mask, prediction[0], 1.0)
+                    # zero out the background for the other channels
+                    prediction[1:] = prediction[1:] * mask
 
                 if ofile is not None:
                     # this needs to go into background processes
