@@ -7,6 +7,8 @@ from nnunetv2.training.dataloading.nnunet_dataset import nnUNetDataset
 from nnunetv2.utilities.label_handling.label_handling import LabelManager
 import copy
 
+from mbas.training.voxel_selector import VoxelSelector
+
 def normalize_dictionary(d: dict):
     norm = sum(d.values())
     for k in d.keys():
@@ -26,6 +28,7 @@ class nnUNetDataLoaderBase(DataLoader):
                  probabilistic_oversampling: bool = False,
                  transforms=None,
                  sample_class_probabilities: Dict[int, float] = None,
+                 voxel_sample_z_coverage: bool = False
                 ):
         super().__init__(data, batch_size, 1, None, True, False, True, sampling_probabilities)
         self.indices = list(data.keys())
@@ -54,11 +57,15 @@ class nnUNetDataLoaderBase(DataLoader):
             sample_class_probabilities = normalize_dictionary(sample_class_probabilities)
         self.sample_class_probabilities = sample_class_probabilities
 
+        self.voxel_selector = VoxelSelector(z_coverage=voxel_sample_z_coverage)
+
     def _oversample_last_XX_percent(self, sample_idx: int) -> bool:
         """
         determines whether sample sample_idx in a minibatch needs to be guaranteed foreground
         """
-        return not sample_idx < round(self.batch_size * (1 - self.oversample_foreground_percent))
+        result = not sample_idx < round(self.batch_size * (1 - self.oversample_foreground_percent))
+        # print(f"[{sample_idx}] _oversample_last_XX_percent: {result}")
+        return result
 
     def _probabilistic_oversampling(self, sample_idx: int) -> bool:
         # print('YEAH BOIIIIII')
@@ -148,7 +155,7 @@ class nnUNetDataLoaderBase(DataLoader):
             voxels_of_that_class = class_locations[selected_class] if selected_class is not None else None
 
             if voxels_of_that_class is not None and len(voxels_of_that_class) > 0:
-                selected_voxel = voxels_of_that_class[np.random.choice(len(voxels_of_that_class))]
+                selected_voxel = self.voxel_selector.select_voxel(voxels_of_that_class, selected_class)
                 # selected voxel is center voxel. Subtract half the patch size to get lower bbox voxel.
                 # Make sure it is within the bounds of lb and ub
                 # i + 1 because we have first dimension 0!
