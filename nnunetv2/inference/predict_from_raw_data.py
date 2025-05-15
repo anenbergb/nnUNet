@@ -390,6 +390,7 @@ class nnUNetPredictor(object):
 
                     cascaded_mask_dilation = self.configuration_manager.configuration.get("cascaded_mask_dilation", 0)
                     if cascaded_mask_dilation > 0:
+                        print(f"Applying binary dilation with radius={cascaded_mask_dilation}")
                         from mbas.utils.binary_dilation_transform import binary_dilation_transform
                         mask[0] = binary_dilation_transform(
                             mask[0], cascaded_mask_dilation
