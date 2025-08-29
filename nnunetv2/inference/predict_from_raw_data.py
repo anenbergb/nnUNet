@@ -97,6 +97,11 @@ class nnUNetPredictor(object):
         trainer_class = recursive_find_python_class(join(nnunetv2.__path__[0], "training", "nnUNetTrainer"),
                                                     trainer_name, 'nnunetv2.training.nnUNetTrainer')
         if trainer_class is None:
+            import mbas
+            trainer_class = recursive_find_python_class(join(mbas.__path__[0], "training"),
+                                        trainer_name,
+                                        current_module="mbas.training")
+        if trainer_class is None:
             raise RuntimeError(f'Unable to locate trainer class {trainer_name} in nnunetv2.training.nnUNetTrainer. '
                                f'Please place it there (in any .py file)!')
         network = trainer_class.build_network_architecture(
@@ -374,6 +379,30 @@ class nnUNetPredictor(object):
 
                 prediction = self.predict_logits_from_preprocessed_data(data).cpu()
 
+                is_cascaded_mask = self.configuration_manager.configuration.get("is_cascaded_mask", False)
+                if is_cascaded_mask:
+  
+                    # prediction.shape (4,44,574,574)
+                    # mask shape (1,44,574,574)
+                    seg = preprocessed["seg"]
+                    seg[seg < 0] = 0
+                    mask = torch.from_numpy(seg).to(torch.bool)
+
+                    cascaded_mask_dilation = self.configuration_manager.configuration.get("cascaded_mask_dilation", 0)
+                    if cascaded_mask_dilation > 0:
+                        print(f"Applying binary dilation with radius={cascaded_mask_dilation}")
+                        from mbas.utils.binary_dilation_transform import binary_dilation_transform
+                        mask[0] = binary_dilation_transform(
+                            mask[0], cascaded_mask_dilation
+                        )
+
+                    # background class-0 prediction is the first channel
+                    # set the un-masked region (background) to 1
+                    # leave the masked region (foreground) as is
+                    prediction[0] = torch.where(mask, prediction[0], 1.0)
+                    # zero out the background for the other channels
+                    prediction[1:] = prediction[1:] * mask
+
                 if ofile is not None:
                     # this needs to go into background processes
                     # export_prediction_from_logits(prediction, properties, self.configuration_manager, self.plans_manager,
@@ -572,9 +601,9 @@ class nnUNetPredictor(object):
             if self.verbose:
                 print(f'preallocating results arrays on device {results_device}')
             predicted_logits = torch.zeros((self.label_manager.num_segmentation_heads, *data.shape[1:]),
-                                           dtype=torch.half,
+                                           dtype=torch.float32,
                                            device=results_device)
-            n_predictions = torch.zeros(data.shape[1:], dtype=torch.half, device=results_device)
+            n_predictions = torch.zeros(data.shape[1:], dtype=torch.float32, device=results_device)
 
             if self.use_gaussian:
                 gaussian = compute_gaussian(tuple(self.configuration_manager.patch_size), sigma_scale=1. / 8,

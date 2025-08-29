@@ -40,6 +40,12 @@ def get_trainer_from_args(dataset_name_or_id: Union[int, str],
     nnunet_trainer = recursive_find_python_class(join(nnunetv2.__path__[0], "training", "nnUNetTrainer"),
                                                 trainer_name, 'nnunetv2.training.nnUNetTrainer')
     if nnunet_trainer is None:
+        import mbas
+        nnunet_trainer = recursive_find_python_class(join(mbas.__path__[0], "training"),
+                                    trainer_name,
+                                    current_module="mbas.training")
+
+    if nnunet_trainer is None:
         raise RuntimeError(f'Could not find requested nnunet trainer {trainer_name} in '
                            f'nnunetv2.training.nnUNetTrainer ('
                            f'{join(nnunetv2.__path__[0], "training", "nnUNetTrainer")}). If it is located somewhere '
